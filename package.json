@@ -1,0 +1,11 @@
+{
+  "name": "hermes-support-agency",
+  "private": true,
+  "scripts": {
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy"
+  },
+  "dependencies": {
+    "convex": "^1.42.1"
+  }
+}

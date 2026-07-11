@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}CSM briefing — Support Crew{% endblock %}
+
+{% block content %}
+  <header class="briefing-hero">
+    <div>
+      <p class="eyebrow"><span class="pulse"></span> Agent briefing · live from customer signals</p>
+      <h1>What needs your attention</h1>
+      <p>The agent reviewed {{ stats.total }} customer signal{{ 's' if stats.total != 1 }} across {{ conversations|length }} thread{{ 's' if conversations|length != 1 }} and filtered the noise into the highest-leverage next steps.</p>
+    </div>
+    <div class="briefing-totals" aria-label="Support overview">
+      <span><strong>{{ actions|length }}</strong> actions</span>
+      <span><strong>{{ stats.escalated }}</strong> escalated</span>
+      <span><strong>{{ stats.in_review }}</strong> in review</span>
+    </div>
+  </header>
+
+  <section class="action-section" aria-labelledby="action-title">
+    <div class="section-heading">
+      <div>
+        <p class="section-kicker">Prioritized by impact and recurrence</p>
+        <h2 id="action-title">Recommended next steps</h2>
+      </div>
+      <span class="agent-label">AI synthesized</span>
+    </div>
+
+    {% if actions %}
+      <div class="action-list">
+        {% for action in actions %}
+          <article class="action-card priority-{{ action.priority }}">
+            <div class="action-rank">{{ "%02d"|format(loop.index) }}</div>
+            <div class="action-content">
+              <div class="action-labels">
+                <span class="signal-label">{{ action.signal }}</span>
+                <span class="priority-label {{ action.priority }}">{{ action.priority }} priority</span>
+              </div>
+              <h3>{{ action.title }}</h3>
+              <p class="action-recommendation">{{ action.recommendation }}</p>
+              <div class="action-meta">
+                <span><strong>{{ action.ticket_count }}</strong> signal{{ 's' if action.ticket_count != 1 }}</span>
+                <span><strong>{{ action.customer_count }}</strong> customer{{ 's' if action.customer_count != 1 }}</span>
+                <span><strong>{{ action.confidence }}</strong> confidence</span>
+              </div>
+              <details class="action-evidence">
+                <summary>Why the agent proposed this</summary>
+                <p>“{{ action.evidence }}”</p>
+              </details>
+            </div>
+            {% if action.customer_email %}
+              <a class="action-link" href="{{ url_for('customer_detail', email=action.customer_email) }}">Review context <span aria-hidden="true">→</span></a>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="all-clear">
+        <span>✓</span>
+        <div><strong>No urgent action detected</strong><p>The agent will surface a recommendation when a meaningful pattern appears.</p></div>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="evidence-section" aria-labelledby="conversation-title">
+    <div class="section-heading evidence-heading">
+      <div>
+        <p class="section-kicker">Source material</p>
+        <h2 id="conversation-title">Conversation evidence</h2>
+      </div>
+      <span class="conversation-count">{{ conversations|length }} customer thread{{ 's' if conversations|length != 1 }}</span>
+    </div>
+
+    {% if conversations %}
+    <div class="table-wrap">
+    <table class="ticket-table conversation-table">
+      <thead>
+        <tr>
+          <th>Customer</th>
+          <th>Latest message</th>
+          <th>Category</th>
+          <th>Status</th>
+          <th>Tickets</th>
+          <th style="text-align:right">Agent cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for conversation in conversations %}
+        <tr onclick="window.location='{{ url_for('customer_detail', email=conversation.customer_email) }}'">
+          <td class="email conversation-customer">
+            <span class="avatar">{{ conversation.customer_email[0]|upper }}</span>
+            <span>{{ conversation.customer_email }}</span>
+            {% if conversation.has_memory %}<span class="memory-flag" title="Returning customer">◆</span>{% endif %}
+          </td>
+          <td class="subj">{{ conversation.latest_subject }}</td>
+          <td><span class="cat-badge">{{ conversation.latest_category or "—" }}</span></td>
+          <td><span class="badge status-{{ conversation.latest_status }}">{{ conversation.latest_status.replace('_', ' ') }}</span></td>
+          <td class="ticket-count">{{ conversation.ticket_count }}</td>
+          <td class="cost">${{ "%.4f"|format(conversation.total_cost or 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div class="empty-state">No conversations yet — send a support message to start one.</div>
+    {% endif %}
+  </section>
+{% endblock %}

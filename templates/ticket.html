@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Ticket #{{ ticket.id }} — Trace{% endblock %}
+
+{#
+  Expects from Flask:
+    ticket = { id, subject, customer_email, category, status,
+               resolution_action, resolution_notes }
+    steps = [
+      {
+        step_type,       # 'memory_lookup' | 'classify' | 'route' |
+                          # 'specialist_draft' | 'manager_review' |
+                          # 'specialist_revision' | 'manager_review_2'
+        agent_name,
+        input_summary, output_summary, reasoning,
+        tokens_used, cost_estimate,
+        verdict            # optional: 'APPROVE' | 'REVISE', for review steps
+      }, ...
+    ]  # already in chronological order
+    total_cost, total_tokens
+#}
+
+{% block content %}
+  <a class="back-link" href="/">&larr; all tickets</a>
+
+  <div class="trace-header">
+    <div>
+      <h1>#{{ "%02d"|format(ticket.id) }} — {{ ticket.subject }}</h1>
+      <div class="subject-line">
+        <span class="cat-badge">{{ ticket.category or "unclassified" }}</span>
+        <span class="badge status-{{ ticket.status }}">{{ ticket.status.replace('_', ' ') }}</span>
+      </div>
+      <div class="customer"><a href="{{ url_for('customer_detail', email=ticket.customer_email) }}">{{ ticket.customer_email }}</a></div>
+    </div>
+    <div class="trace-totals">
+      <div class="big">${{ "%.4f"|format(total_cost) }}</div>
+      <div class="label">{{ total_tokens }} tokens · {{ steps|length }} steps</div>
+    </div>
+  </div>
+
+  <div class="timeline">
+    {% for s in steps %}
+      {% set kind = 'classify' %}
+      {% set icon = '·' %}
+      {% if s.step_type == 'memory_lookup' %}{% set kind = 'memory' %}{% set icon = '◆' %}
+      {% elif s.step_type == 'classify' %}{% set kind = 'classify' %}{% set icon = '?' %}
+      {% elif s.step_type == 'route' %}{% set kind = 'route' %}{% set icon = '→' %}
+      {% elif s.step_type in ['specialist_draft', 'specialist_revision'] %}{% set kind = 'draft' %}{% set icon = '✎' %}
+      {% elif s.step_type in ['manager_review', 'manager_review_2'] and s.verdict == 'REVISE' %}{% set kind = 'review-revise' %}{% set icon = '↩' %}
+      {% elif s.step_type in ['manager_review', 'manager_review_2'] %}{% set kind = 'review-approve' %}{% set icon = '✓' %}
+      {% endif %}
+
+      {% set is_last = loop.last %}
+      {% set final_kind = 'final-escalated' if ticket.status == 'escalated' else 'final' %}
+
+      <div class="step" data-kind="{{ final_kind if is_last else kind }}">
+        <div class="step-marker">{{ '⏺' if is_last else icon }}</div>
+        <div class="step-card {{ 'flag-revise' if s.verdict == 'REVISE' else ('flag-approve' if s.verdict == 'APPROVE' else '') }}">
+          <div class="step-top">
+            <span class="step-name">{{ s.step_type.replace('_', ' ') }}</span>
+            <span class="step-agent">{{ s.agent_name }}</span>
+            <span class="step-cost">${{ "%.4f"|format(s.cost_estimate or 0) }} · {{ s.tokens_used or 0 }}tok</span>
+          </div>
+          {% if s.output_summary %}
+            <p class="step-summary">{{ s.output_summary }}</p>
+          {% endif %}
+          {% if s.reasoning %}
+          <details class="step-reasoning">
+            <summary>reasoning</summary>
+            <div class="reasoning-text">{{ s.reasoning }}</div>
+          </details>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+
+    <div class="step" data-kind="{{ 'final-escalated' if ticket.status == 'escalated' else 'final' }}">
+      <div class="step-marker">{{ '⚠' if ticket.status == 'escalated' else '✓' }}</div>
+      <div class="step-card">
+        <div class="step-top">
+          <span class="step-name">final: {{ ticket.status }}</span>
+          <span class="step-agent">{{ ticket.resolution_action or '—' }}</span>
+        </div>
+        <div class="final-response">{{ ticket.resolution_notes or "No resolution notes recorded." }}</div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

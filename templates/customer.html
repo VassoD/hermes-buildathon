@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ email }} · Conversation{% endblock %}
+
+{% block content %}
+  <a class="back-link" href="/">&larr; all conversations</a>
+
+  <div class="conversation-header">
+    <div class="avatar avatar-large">{{ email[0]|upper }}</div>
+    <div>
+      <h1 class="page-title">{{ email }}</h1>
+      <p class="page-sub">
+        {{ tickets|length }} ticket{{ 's' if tickets|length != 1 }}
+        · ${{ "%.4f"|format(total_cost) }} total cost
+      </p>
+    </div>
+  </div>
+
+  <div class="conversation-layout">
+    <main class="chat-panel">
+      <div class="chat-heading">
+        <strong>Conversation</strong>
+        <span>{{ messages|length }} messages</span>
+      </div>
+      <div class="message-list">
+        {% for message in messages %}
+          <article class="message-row {{ message.direction }}">
+            <div class="message-meta">
+              <span>{{ "Customer" if message.direction == "inbound" else "Support crew" }}</span>
+              <a href="/ticket/{{ message.ticket_id }}">#{{ "%02d"|format(message.ticket_id) }}</a>
+              <time>{{ message.created_at }}</time>
+            </div>
+            <div class="message-bubble {{ 'progress' if message.kind == 'progress' else '' }}">{{ message.body }}</div>
+          </article>
+        {% else %}
+          <div class="empty-state">No messages recorded for this customer.</div>
+        {% endfor %}
+      </div>
+    </main>
+
+    <aside class="ticket-sidebar">
+      <h2>Tickets</h2>
+      {% for t in tickets|reverse %}
+        <a class="ticket-summary" href="/ticket/{{ t.id }}">
+          <div>
+            <strong>#{{ "%02d"|format(t.id) }}</strong>
+            <span class="badge status-{{ t.status }}">{{ t.status.replace('_', ' ') }}</span>
+          </div>
+          <p>{{ t.subject }}</p>
+          <small>{{ t.category or 'unclassified' }} · ${{ "%.4f"|format(t.total_cost or 0) }}</small>
+        </a>
+      {% endfor %}
+    </aside>
+  </div>
+{% endblock %}

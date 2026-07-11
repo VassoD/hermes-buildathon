@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Support Crew{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="shell">
+    <div class="top-bar">
+      <div class="brand"><span class="dot">●</span> support-crew / agency console</div>
+      <nav class="top-nav">
+        <a href="{{ url_for('index') }}">Briefing</a>
+        <a href="{{ url_for('workspace_setup') }}">Workspace</a>
+      </nav>
+    </div>
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

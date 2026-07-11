@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Product workspace — Support Crew{% endblock %}
+
+{% block content %}
+  <h1 class="page-title">Product workspace</h1>
+  <p class="page-sub">Connect customer reports to product context, source evidence, and Linear.</p>
+
+  {% if message %}<div class="notice success">{{ message }}</div>{% endif %}
+  {% if error %}<div class="notice error">{{ error }}</div>{% endif %}
+
+  <div class="connection-row">
+    <span class="connection {{ 'on' if github_configured else 'off' }}">
+      GitHub {{ 'configured' if github_configured else 'needs GITHUB_TOKEN' }}
+    </span>
+    <span class="connection {{ 'on' if linear_configured else 'off' }}">
+      Linear {{ 'configured' if linear_configured else 'needs LINEAR_API_KEY' }}
+    </span>
+  </div>
+
+  <form class="workspace-form" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Workspace name
+      <input name="name" required value="{{ workspace.name if workspace else '' }}" placeholder="Writer SaaS">
+    </label>
+    <label>
+      Product or documentation URL
+      <input name="product_url" required type="url" value="{{ workspace.product_url if workspace else '' }}" placeholder="https://app.example.com/docs">
+      <small>Must be publicly reachable. Private and local network addresses are blocked.</small>
+    </label>
+    <div class="form-grid">
+      <label>
+        GitHub repository
+        <input name="github_repo" value="{{ workspace.github_repo if workspace else '' }}" placeholder="owner/repository">
+      </label>
+      <label>
+        Default branch
+        <input name="github_branch" value="{{ workspace.github_branch if workspace else 'main' }}">
+      </label>
+      <label>
+        Linear team ID
+        <input name="linear_team_id" value="{{ workspace.linear_team_id if workspace else '' }}" placeholder="team UUID">
+      </label>
+      <label>
+        Linear project ID (optional)
+        <input name="linear_project_id" value="{{ workspace.linear_project_id if workspace else '' }}" placeholder="project UUID">
+      </label>
+    </div>
+    <div class="credential-section">
+      <h2>Provider credentials</h2>
+      {% if credentials_editable %}
+        <p>Saved to your macOS login Keychain, never to the application database. Leave blank to keep the existing credential.</p>
+        <div class="form-grid">
+          <label>
+            GitHub token
+            <input name="github_token" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing">
+          </label>
+          <label>
+            Linear API key
+            <input name="linear_api_key" type="password" autocomplete="new-password" placeholder="Leave blank to keep existing">
+          </label>
+        </div>
+      {% else %}
+        <div class="notice error">Credentials can only be changed from localhost.</div>
+      {% endif %}
+    </div>
+    <label>
+      Create/reuse a Linear issue when bug confidence is
+      <select name="bug_confidence_threshold">
+        <option value="likely" {% if not workspace or workspace.bug_confidence_threshold == 'likely' %}selected{% endif %}>Likely or confirmed</option>
+        <option value="confirmed" {% if workspace and workspace.bug_confidence_threshold == 'confirmed' %}selected{% endif %}>Confirmed only</option>
+      </select>
+    </label>
+    <button type="submit">Save workspace</button>
+  </form>
+{% endblock %}
