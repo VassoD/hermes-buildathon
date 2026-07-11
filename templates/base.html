@@ -8,13 +8,14 @@
 </head>
 <body>
   <div class="shell">
-    <div class="top-bar">
-      <div class="brand"><span class="dot">●</span> support-crew / agency console</div>
+    <header class="masthead">
+      <a class="brand" href="{{ url_for('index') }}">Support Crew<span class="brand-suffix">Agency console</span></a>
       <nav class="top-nav">
-        <a href="{{ url_for('index') }}">Briefing</a>
-        <a href="{{ url_for('workspace_setup') }}">Workspace</a>
+        <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint in ('index', 'customer_detail', 'ticket_detail') }}">Briefing</a>
+        <a href="{{ url_for('overview') }}" class="{{ 'active' if request.endpoint == 'overview' }}">Vue d'ensemble</a>
+        <a href="{{ url_for('workspace_setup') }}" class="{{ 'active' if request.endpoint == 'workspace_setup' }}">Workspace</a>
       </nav>
-    </div>
+    </header>
     {% block content %}{% endblock %}
   </div>
 </body>

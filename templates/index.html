@@ -1,17 +1,26 @@
 {% extends "base.html" %}
-{% block title %}CSM briefing — Support Crew{% endblock %}
+{% block title %}CSM briefing · Support Crew{% endblock %}
 
 {% block content %}
   <header class="briefing-hero">
-    <div>
-      <p class="eyebrow"><span class="pulse"></span> Agent briefing · live from customer signals</p>
-      <h1>What needs your attention</h1>
-      <p>The agent reviewed {{ stats.total }} customer signal{{ 's' if stats.total != 1 }} across {{ conversations|length }} thread{{ 's' if conversations|length != 1 }} and filtered the noise into the highest-leverage next steps.</p>
+    <p class="eyebrow"><span class="pulse" aria-hidden="true"></span>Agent briefing · live from customer signals</p>
+    <h1>What needs your <em>attention</em></h1>
+    <p class="hero-lede">The agent reviewed {{ stats.total }} customer signal{{ 's' if stats.total != 1 }} across {{ conversations|length }} thread{{ 's' if conversations|length != 1 }} and filtered the noise into the highest-leverage next steps.</p>
+    <div class="crew-explainer">
+      <p class="crew-what"><strong>Support Crew</strong> is an AI agent crew that runs customer support end to end. It resolves tickets on its own and hands the human this briefing, plus the exceptions.</p>
+      <ol class="crew-steps" aria-label="How the crew works">
+        <li>Ticket arrives on Telegram</li>
+        <li>Manager plans &amp; routes</li>
+        <li>Specialists resolve</li>
+        <li>Reviewer approves or escalates</li>
+        <li>Memory persists per customer</li>
+      </ol>
     </div>
     <div class="briefing-totals" aria-label="Support overview">
       <span><strong>{{ actions|length }}</strong> actions</span>
       <span><strong>{{ stats.escalated }}</strong> escalated</span>
       <span><strong>{{ stats.in_review }}</strong> in review</span>
+      <span><strong>{{ stats.resolved }}</strong> resolved</span>
     </div>
   </header>
 
@@ -91,7 +100,7 @@
             {% if conversation.has_memory %}<span class="memory-flag" title="Returning customer">◆</span>{% endif %}
           </td>
           <td class="subj">{{ conversation.latest_subject }}</td>
-          <td><span class="cat-badge">{{ conversation.latest_category or "—" }}</span></td>
+          <td><span class="cat-badge">{{ conversation.latest_category or "·" }}</span></td>
           <td><span class="badge status-{{ conversation.latest_status }}">{{ conversation.latest_status.replace('_', ' ') }}</span></td>
           <td class="ticket-count">{{ conversation.ticket_count }}</td>
           <td class="cost">${{ "%.4f"|format(conversation.total_cost or 0) }}</td>

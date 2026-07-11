@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Vue d'ensemble · Support Crew{% endblock %}
+
+{% block content %}
+  <header class="overview-header">
+    <p class="eyebrow">Operations · all signals to date</p>
+    <h1 class="page-title">Vue d'ensemble</h1>
+    <p class="page-sub">How the crew is performing, where the work lands, and what it costs.</p>
+  </header>
+
+  {% if stats.total == 0 %}
+    <div class="empty-state">No signals yet. Charts appear once the crew handles its first ticket.</div>
+  {% else %}
+
+  <div class="stat-tiles">
+    <div class="stat-tile">
+      <span class="stat-value">{{ stats.total }}</span>
+      <span class="stat-label">signals received</span>
+      <span class="stat-note">from {{ customer_count }} customer{{ 's' if customer_count != 1 }}</span>
+    </div>
+    <div class="stat-tile">
+      <span class="stat-value">{{ resolution_rate }}<span class="stat-unit">%</span></span>
+      <span class="stat-label">resolved autonomously</span>
+      <span class="stat-note">{{ stats.resolved }} of {{ stats.total }} signals</span>
+    </div>
+    <div class="stat-tile{{ ' attention' if stats.escalated }}">
+      <span class="stat-value">{{ stats.escalated }}</span>
+      <span class="stat-label">escalated to humans</span>
+      <span class="stat-note">{{ stats.in_review }} still in review</span>
+    </div>
+    <div class="stat-tile">
+      <span class="stat-value"><span class="stat-unit">$</span>{{ "%.4f"|format(stats.total_cost) }}</span>
+      <span class="stat-label">total agent spend</span>
+      <span class="stat-note">${{ "%.4f"|format(avg_cost) }} per signal · {{ "{:,}".format(total_tokens) }} tokens</span>
+    </div>
+  </div>
+
+  <section class="chart-section" aria-labelledby="volume-title">
+    <div class="section-heading">
+      <div>
+        <p class="section-kicker">Arrivals per hour, colored by outcome</p>
+        <h2 id="volume-title">When signals land</h2>
+      </div>
+      <ul class="chart-legend" aria-hidden="true">
+        {% for status in status_order %}
+          <li class="legend-item st-{{ status }}">{{ status.replace('_', ' ') }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="column-chart" role="img"
+         aria-label="Ticket arrivals per hour, split by status. A table view follows.">
+      {% for column in volume %}
+        <div class="column">
+          <span class="column-total">{{ column.total }}</span>
+          <div class="column-stack" style="height: {{ volume_height }}px">
+            {% for segment in column.segments|reverse %}
+              <div class="segment st-{{ segment.status }}"
+                   style="height: {{ segment.px }}px"
+                   data-tip="{{ segment.count }} {{ segment.status.replace('_', ' ') }} · {{ column.label }}"></div>
+            {% endfor %}
+          </div>
+          <span class="column-label">{{ column.label }}</span>
+        </div>
+      {% endfor %}
+    </div>
+
+    <details class="chart-table">
+      <summary>Table view</summary>
+      <div class="table-wrap">
+        <table class="ticket-table">
+          <thead>
+            <tr>
+              <th>Hour</th>
+              {% for status in status_order %}<th>{{ status.replace('_', ' ') }}</th>{% endfor %}
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for column in volume %}
+              <tr class="static-row">
+                <td class="tid">{{ column.label }}</td>
+                {% for status in status_order %}
+                  {% set match = column.segments | selectattr('status', 'equalto', status) | list %}
+                  <td class="ticket-count">{{ match[0].count if match else 0 }}</td>
+                {% endfor %}
+                <td class="ticket-count">{{ column.total }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <div class="chart-pair">
+    <section class="chart-section" aria-labelledby="category-title">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">Share of all signals</p>
+          <h2 id="category-title">What customers write about</h2>
+        </div>
+      </div>
+      <div class="bar-chart">
+        {% for row in categories %}
+          <div class="bar-row">
+            <span class="bar-label">{{ row.label }}</span>
+            <div class="bar-track">
+              <div class="bar-fill" style="width: {{ row.pct }}%"
+                   data-tip="{{ row.value|int }} signal{{ 's' if row.value != 1 }}"></div>
+            </div>
+            <span class="bar-value">{{ row.value|int }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="chart-section" aria-labelledby="spend-title">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">Agent cost by pipeline step</p>
+          <h2 id="spend-title">Where the spend goes</h2>
+        </div>
+      </div>
+      <div class="bar-chart">
+        {% for row in spend.bars %}
+          <div class="bar-row">
+            <span class="bar-label">{{ row.label }}</span>
+            <div class="bar-track">
+              <div class="bar-fill" style="width: {{ row.pct }}%"
+                   data-tip="{{ row.calls }} call{{ 's' if row.calls != 1 }} · {{ '{:,}'.format(row.tokens) }} tokens"></div>
+            </div>
+            <span class="bar-value">${{ "%.4f"|format(row.cost) }}</span>
+          </div>
+        {% endfor %}
+      </div>
+      {% if spend.free_steps %}
+        <p class="chart-footnote">{{ spend.free_steps|join(', ') }} are deterministic and cost nothing.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  {% endif %}
+{% endblock %}

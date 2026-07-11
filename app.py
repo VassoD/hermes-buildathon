@@ -8,7 +8,7 @@ tickets.db via the shared query logic in trace_viewer.py.
 import os
 import re
 import secrets
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from flask import Flask, render_template, abort, request, session
 
@@ -75,29 +75,113 @@ def get_stats(tickets: list[dict]) -> dict:
     }
 
 
+STATUS_STACK_ORDER = ("resolved", "in_review", "escalated", "open")
+VOLUME_CHART_HEIGHT_PX = 160
+
+
+def volume_by_hour(tickets: list[dict]) -> list[dict]:
+    """Bucket ticket arrivals per hour, split by final status, sized for the chart."""
+    by_hour: dict[str, dict[str, int]] = {}
+    for ticket in tickets:
+        hour_key = (ticket["created_at"] or "")[:13]
+        bucket = by_hour.setdefault(hour_key, dict.fromkeys(STATUS_STACK_ORDER, 0))
+        bucket[ticket["status"]] = bucket.get(ticket["status"], 0) + 1
+
+    hours = sorted(by_hour)
+    max_total = max((sum(by_hour[hour].values()) for hour in hours), default=1)
+    unit = VOLUME_CHART_HEIGHT_PX / max_total
+    multi_day = len({hour[:10] for hour in hours}) > 1
+    columns = []
+    for hour_key in hours:
+        label = f"{hour_key[11:13]}h"
+        if multi_day:
+            label = f"{hour_key[8:10]}/{hour_key[5:7]} {label}"
+        columns.append({
+            "label": label,
+            "total": sum(by_hour[hour_key].values()),
+            "segments": [
+                {
+                    "status": status,
+                    "count": count,
+                    "px": max(round(count * unit), 3),
+                }
+                for status in STATUS_STACK_ORDER
+                if (count := by_hour[hour_key][status])
+            ],
+        })
+    return columns
+
+
+def scaled_bars(counts: dict[str, float]) -> list[dict]:
+    """Sort label->value pairs and scale each to a 0-100 width for CSS bars."""
+    max_value = max(counts.values(), default=1) or 1
+    ordered = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+    return [
+        {"label": label, "value": value, "pct": round(value / max_value * 100, 1)}
+        for label, value in ordered
+    ]
+
+
+def spend_by_step(conn) -> dict:
+    rows = conn.execute(
+        """
+        SELECT step_type, COUNT(*) AS calls,
+               SUM(tokens_used) AS tokens, SUM(cost_estimate) AS cost
+        FROM runs GROUP BY step_type ORDER BY cost DESC
+        """
+    ).fetchall()
+    priced = [row for row in rows if (row["cost"] or 0) > 0]
+    max_cost = max((row["cost"] for row in priced), default=1) or 1
+    return {
+        "bars": [
+            {
+                "label": row["step_type"].replace("_", " "),
+                "cost": row["cost"],
+                "calls": row["calls"],
+                "tokens": row["tokens"] or 0,
+                "pct": round(row["cost"] / max_cost * 100, 1),
+            }
+            for row in priced
+        ],
+        "free_steps": [
+            row["step_type"].replace("_", " ")
+            for row in rows
+            if (row["cost"] or 0) == 0
+        ],
+    }
+
+
 TOPIC_RULES = (
-    ("article generation", ("generation", "generate", "article")),
+    # Topics are scored by keyword-hit count; order only breaks ties, so
+    # broad vocabularies like article generation go last.
     ("sign-up and login", ("sign up", "signup", "log in", "login", "password")),
     ("export", ("export", "download", "pdf", "csv")),
     ("integrations", ("integration", "slack", "webhook", "sync")),
     ("billing", ("billing", "invoice", "charged", "payment", "plan")),
     ("refunds", ("refund", "money back")),
+    ("article generation", ("generation", "generate", "article")),
 )
 
 
 def _ticket_text(ticket: dict) -> str:
+    """Customer-written text only: agent resolution notes mention too many
+    product nouns and would misroute tickets into the wrong topic cluster."""
     return " ".join(
-        str(ticket.get(field) or "")
-        for field in ("subject", "body", "resolution_notes")
+        str(ticket.get(field) or "") for field in ("subject", "body")
     ).lower()
 
 
 def _ticket_topic(ticket: dict) -> str:
+    """Pick the topic with the most keyword hits, not the first match:
+    a screenshot follow-up that mentions "download" once but the article
+    issue three times belongs with the article cluster."""
     text = _ticket_text(ticket)
+    best_topic, best_score = "general product usage", 0
     for topic, keywords in TOPIC_RULES:
-        if any(keyword in text for keyword in keywords):
-            return topic
-    return "product workflow"
+        score = sum(text.count(keyword) for keyword in keywords)
+        if score > best_score:
+            best_topic, best_score = topic, score
+    return best_topic
 
 
 def _action_card(
@@ -196,10 +280,13 @@ def propose_csm_actions(tickets: list[dict]) -> list[dict]:
             if ticket.get("status") in {"open", "in_review", "escalated"}
         ]
         if len(unresolved) >= 3:
+            dominant_topic = Counter(
+                _ticket_topic(ticket) for ticket in unresolved
+            ).most_common(1)[0][0]
             actions.append(_action_card(
                 signal="Account risk",
                 priority="high",
-                topic=_ticket_topic(unresolved[-1]),
+                topic=dominant_topic,
                 tickets=unresolved,
                 recommendation=f"Assign one CSM owner and send {email} a single outcome-focused update.",
             ))
@@ -344,6 +431,43 @@ def index():
         tickets=tickets,
         stats=get_stats(tickets),
         ticket_version=ticket_change_token(),
+    )
+
+
+@app.route("/overview")
+def overview():
+    tickets = get_all_tickets()
+    conn = get_connection()
+    try:
+        spend = spend_by_step(conn)
+        total_tokens = conn.execute(
+            "SELECT COALESCE(SUM(tokens_used), 0) AS n FROM runs"
+        ).fetchone()["n"]
+    finally:
+        conn.close()
+
+    stats = get_stats(tickets)
+    stats["open"] = sum(1 for t in tickets if t["status"] == "open")
+    total = stats["total"]
+    category_counts: dict[str, float] = defaultdict(float)
+    for ticket in tickets:
+        category_counts[ticket.get("category") or "unclassified"] += 1
+
+    return render_template(
+        "overview.html",
+        stats=stats,
+        customer_count=len({t["customer_email"] for t in tickets}),
+        resolution_rate=round(stats["resolved"] / total * 100) if total else 0,
+        avg_cost=stats["total_cost"] / total if total else 0,
+        total_tokens=total_tokens,
+        volume=volume_by_hour(tickets),
+        volume_height=VOLUME_CHART_HEIGHT_PX,
+        categories=scaled_bars(category_counts),
+        spend=spend,
+        status_order=[
+            status for status in STATUS_STACK_ORDER
+            if any(t["status"] == status for t in tickets)
+        ],
     )
 
 

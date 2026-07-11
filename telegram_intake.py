@@ -6,6 +6,12 @@ existing pipeline (memory -> classify -> route -> specialist -> manager
 review). Detailed steps are stored in the trace; Telegram only receives a
 concise intake acknowledgement and the customer-facing resolution.
 
+If the sender already has a ticket sitting in_review because a specialist
+asked for more information (resolution_action='request_more_info'), the
+incoming message is treated as the customer's reply: it is attached to that
+ticket and the specialist re-runs with the new details, instead of a new
+ticket being opened.
+
 Usage:
   python3 telegram_intake.py --user-id 12345 --message "I was charged twice"
   python3 telegram_intake.py --user-id 12345 --message "..." --no-telegram
@@ -33,7 +39,13 @@ from agency_integrations import (
 from db import get_connection
 from dodo import extract_payment_id
 from llm import LLMError
-from manager import ClassificationError, log_run, process_ticket, ReviewError
+from manager import (
+    CATEGORY_ROUTING,
+    ClassificationError,
+    log_run,
+    process_ticket,
+    ReviewError,
+)
 from memory import build_history_summary
 from run_review import review_and_finalize
 from specialists import run_specialist, SpecialistError
@@ -183,6 +195,45 @@ def insert_ticket(conn: sqlite3.Connection, customer_email: str, message: str) -
     ).fetchone()
 
 
+def find_awaiting_ticket(
+    conn: sqlite3.Connection, customer_email: str
+) -> sqlite3.Row | None:
+    """Latest ticket for this customer that is waiting on their reply."""
+    return conn.execute(
+        """
+        SELECT * FROM tickets
+        WHERE customer_email = ?
+          AND status = 'in_review'
+          AND resolution_action = 'request_more_info'
+        ORDER BY id DESC LIMIT 1
+        """,
+        (customer_email,),
+    ).fetchone()
+
+
+def attach_followup(
+    conn: sqlite3.Connection, ticket: sqlite3.Row, message: str
+) -> sqlite3.Row:
+    """Store the customer's reply on the waiting ticket and extend its body."""
+    reply = message.strip()
+    conn.execute(
+        """
+        INSERT INTO support_messages
+            (ticket_id, customer_email, channel, direction, kind, body)
+        VALUES (?, ?, 'telegram', 'inbound', 'customer_message', ?)
+        """,
+        (ticket["id"], ticket["customer_email"], reply),
+    )
+    conn.execute(
+        "UPDATE tickets SET body = body || ? WHERE id = ?",
+        (f"\n\nCustomer follow-up: {reply}", ticket["id"]),
+    )
+    conn.commit()
+    return conn.execute(
+        "SELECT * FROM tickets WHERE id = ?", (ticket["id"],)
+    ).fetchone()
+
+
 def run_bug_investigation(
     conn: sqlite3.Connection,
     ticket: sqlite3.Row,
@@ -255,44 +306,84 @@ def handle_message(user_id: str, message: str, chat_id: str, dry_run: bool) -> d
     conn = get_connection()
     steps_ran: list[str] = []
     try:
-        ticket = insert_ticket(conn, customer_email, message)
-        narrator.attach(conn, ticket["id"], customer_email)
-        steps_ran.append("intake")
-        narrator.say(f"📋 I've logged this as support ticket #{ticket['id']} and I'm reviewing it.")
-
+        waiting = find_awaiting_ticket(conn, customer_email)
         run_id = str(uuid.uuid4())
-        history = build_history_summary(conn, ticket)
-        log_run(
-            conn,
-            run_id,
-            ticket["id"],
-            step_type="memory_lookup",
-            input_summary=f"customer_email={customer_email}",
-            output_summary=history,
-            reasoning=(
-                "Deterministic lookup of this customer's finalized tickets "
-                "(status resolved/escalated), no LLM call."
-            ),
-            cost_estimate=0.0,
-        )
-        conn.commit()
-        steps_ran.append("memory_lookup")
-        classification, routing = process_ticket(
-            conn, ticket, run_id=run_id, customer_history=history
-        )
-        ticket = conn.execute(
-            "SELECT * FROM tickets WHERE id = ?", (ticket["id"],)
-        ).fetchone()
-        steps_ran.extend(["classify", "route"])
+
+        if waiting is not None:
+            ticket = attach_followup(conn, waiting, message)
+            narrator.attach(conn, ticket["id"], customer_email)
+            steps_ran.append("followup_intake")
+            narrator.say(
+                f"📋 Thanks, I've added your reply to ticket #{ticket['id']} "
+                "and I'm taking another look."
+            )
+            history = build_history_summary(conn, ticket)
+            log_run(
+                conn,
+                run_id,
+                ticket["id"],
+                step_type="followup_received",
+                input_summary=f"customer_email={customer_email}",
+                output_summary=f"Reply attached to waiting ticket #{ticket['id']}",
+                reasoning=(
+                    "Customer replied while this ticket was in_review with "
+                    "resolution_action=request_more_info, so the reply is "
+                    "routed back to the same ticket instead of opening a "
+                    "new one."
+                ),
+                cost_estimate=0.0,
+            )
+            conn.commit()
+            targets = CATEGORY_ROUTING.get(ticket["category"], ["TechnicalAgent"])
+            specialist_context = (
+                f"Customer follow-up on ticket #{ticket['id']}. We previously "
+                "asked for more information with this message: "
+                f"{ticket['resolution_notes'] or '(no notes stored)'}\n"
+                f"The customer has now replied: {message.strip()}\n"
+                "Resolve the ticket with the new details if possible; only ask "
+                "for more information again if the reply is truly insufficient."
+            )
+        else:
+            ticket = insert_ticket(conn, customer_email, message)
+            narrator.attach(conn, ticket["id"], customer_email)
+            steps_ran.append("intake")
+            narrator.say(
+                f"📋 I've logged this as support ticket #{ticket['id']} and I'm reviewing it."
+            )
+            history = build_history_summary(conn, ticket)
+            log_run(
+                conn,
+                run_id,
+                ticket["id"],
+                step_type="memory_lookup",
+                input_summary=f"customer_email={customer_email}",
+                output_summary=history,
+                reasoning=(
+                    "Deterministic lookup of this customer's finalized tickets "
+                    "(status resolved/escalated), no LLM call."
+                ),
+                cost_estimate=0.0,
+            )
+            conn.commit()
+            steps_ran.append("memory_lookup")
+            classification, routing = process_ticket(
+                conn, ticket, run_id=run_id, customer_history=history
+            )
+            ticket = conn.execute(
+                "SELECT * FROM tickets WHERE id = ?", (ticket["id"],)
+            ).fetchone()
+            steps_ran.extend(["classify", "route"])
+            targets = routing.targets
+            specialist_context = classification.reasoning
+
         workspace = get_workspace(conn)
         investigation = None
-        specialist_context = classification.reasoning
-        if classification.category == "technical" and workspace is not None:
+        if ticket["category"] == "technical" and workspace is not None:
             investigation = run_bug_investigation(conn, ticket, run_id, workspace)
             specialist_context += "\n\n" + investigation.context_summary()
             steps_ran.append("bug_investigation")
         outcome = None
-        for target in routing.targets:
+        for target in targets:
             draft = run_specialist(
                 target,
                 ticket,

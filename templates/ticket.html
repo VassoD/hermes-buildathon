@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Ticket #{{ ticket.id }} — Trace{% endblock %}
+{% block title %}Ticket #{{ ticket.id }} · Trace{% endblock %}
 
 {#
   Expects from Flask:
@@ -24,7 +24,7 @@
 
   <div class="trace-header">
     <div>
-      <h1>#{{ "%02d"|format(ticket.id) }} — {{ ticket.subject }}</h1>
+      <h1>#{{ "%02d"|format(ticket.id) }} · {{ ticket.subject }}</h1>
       <div class="subject-line">
         <span class="cat-badge">{{ ticket.category or "unclassified" }}</span>
         <span class="badge status-{{ ticket.status }}">{{ ticket.status.replace('_', ' ') }}</span>
@@ -78,7 +78,7 @@
       <div class="step-card">
         <div class="step-top">
           <span class="step-name">final: {{ ticket.status }}</span>
-          <span class="step-agent">{{ ticket.resolution_action or '—' }}</span>
+          <span class="step-agent">{{ ticket.resolution_action or '·' }}</span>
         </div>
         <div class="final-response">{{ ticket.resolution_notes or "No resolution notes recorded." }}</div>
       </div>
