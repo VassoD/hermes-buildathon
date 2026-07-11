@@ -53,6 +53,18 @@ def get_all_tickets() -> list[dict]:
     ]
 
 
+def ticket_change_token() -> str:
+    """Cheap fingerprint of the tickets table so the dashboard can detect new tickets."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS ticket_count, COALESCE(MAX(id), 0) AS max_id FROM tickets"
+        ).fetchone()
+    finally:
+        conn.close()
+    return f"{row['ticket_count']}:{row['max_id']}"
+
+
 def get_stats(tickets: list[dict]) -> dict:
     return {
         "total": len(tickets),
@@ -331,7 +343,13 @@ def index():
         conversations=group_tickets_by_customer(tickets),
         tickets=tickets,
         stats=get_stats(tickets),
+        ticket_version=ticket_change_token(),
     )
+
+
+@app.route("/api/ticket-version")
+def ticket_version():
+    return {"version": ticket_change_token()}
 
 
 @app.route("/customer/<email>")

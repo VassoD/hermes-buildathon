@@ -104,4 +104,25 @@
     <div class="empty-state">No conversations yet — send a support message to start one.</div>
     {% endif %}
   </section>
+
+  <script>
+    (() => {
+      const renderedVersion = {{ ticket_version|tojson }};
+      const POLL_INTERVAL_MS = 5000;
+
+      async function reloadOnNewTickets() {
+        if (document.hidden) return;
+        try {
+          const response = await fetch("{{ url_for('ticket_version') }}", { cache: "no-store" });
+          if (!response.ok) return;
+          const payload = await response.json();
+          if (payload.version !== renderedVersion) window.location.reload();
+        } catch {
+          // Server unreachable, try again on the next tick.
+        }
+      }
+
+      setInterval(reloadOnNewTickets, POLL_INTERVAL_MS);
+    })();
+  </script>
 {% endblock %}
